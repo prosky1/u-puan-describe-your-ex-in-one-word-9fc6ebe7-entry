@@ -1,48 +1,85 @@
-// Describe Your Ex in One Word — entry program (Node 22, TypeScript run as-is).
-// Writes exactly one word to /output/entry.txt and verifies the write by
-// reading the file back byte-for-byte before exiting.
+// Describe Your Ex in One Word — reviser rewrite (from RULES.txt only).
+//
+// The entrypoint emits exactly one word to /output/entry.txt: the verdict
+// the tournament picked. Nothing else is attached — no caption, no
+// trailing newline, no punctuation — so the sealed scorer sees a clean
+// 1-to-111-character UTF-8 text.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
-const WORD = "Placeholder";
-const OUTPUT_PATH = "/output/entry.txt";
-const MAX_CHARS = 111;
+const DESTINATION = "/output/entry.txt";
+const CEILING = 111;
 
-function validate(word: string): void {
-  if (word.length === 0) {
-    throw new Error("word must not be empty");
+// The tournament's winning verdict: a single word, eleven letters.
+function verdictWord(): string {
+  return "Placeholder";
+}
+
+// A word counts as plain letters only when every character is A-Z.
+// Checked with one anchored regex so digits, hyphens and accents fail.
+function onlyPlainLetters(candidate: string): boolean {
+  return /^[A-Za-z]+$/.test(candidate);
+}
+
+// The gate counts characters, but the file is read back as bytes, so
+// confirm the UTF-8 byte length matches the character count too.
+function byteLengthMatches(candidate: string): boolean {
+  return Buffer.byteLength(candidate, "utf8") === candidate.length;
+}
+
+// Walk the candidate once and gather every rule break found, instead of
+// bailing on the first one, so a bad word reports all of its problems.
+function collectViolations(candidate: string): string[] {
+  const problems: string[] = [];
+
+  if (candidate.length === 0 || candidate.trim().length === 0) {
+    problems.push("word is empty or only whitespace");
   }
-  if (word.length > MAX_CHARS) {
-    throw new Error(`word is ${word.length} characters, over the ${MAX_CHARS} limit`);
+  if (candidate.length > CEILING) {
+    problems.push(`word is ${candidate.length} characters, over the ${CEILING} limit`);
   }
-  if (/\s/.test(word)) {
-    throw new Error("word must be a single word with no whitespace");
+  if (/\s/.test(candidate)) {
+    problems.push("word contains whitespace, so it is not one word");
   }
-  if (!/^[\x20-\x7e]+$/.test(word)) {
-    throw new Error("word must be printable ASCII only");
+  if (!onlyPlainLetters(candidate)) {
+    problems.push("word contains characters outside plain A-Z letters");
   }
-  // The judge brief rewards exactly one clean word: no punctuation tricks
-  // (hyphens, apostrophes, dots) that smuggle in extra words.
-  if (/[^A-Za-z]/.test(word)) {
-    throw new Error("word must contain letters only, no punctuation or digits");
+  if (!byteLengthMatches(candidate)) {
+    problems.push("word has multi-byte characters, so byte length differs");
+  }
+  return problems;
+}
+
+function prepareOutputFolder(target: string): void {
+  mkdirSync(dirname(target), { recursive: true });
+}
+
+// Refuse to run when the destination is not the gate's expected path,
+// so a typo in DESTINATION fails loudly instead of writing elsewhere.
+function guardDestination(target: string): void {
+  if (target !== "/output/entry.txt") {
+    throw new Error(`unexpected destination: ${target}`);
   }
 }
 
-function main(): void {
-  validate(WORD);
-  mkdirSync("/output", { recursive: true });
-  writeFileSync(OUTPUT_PATH, WORD, "utf8");
-  const back = readFileSync(OUTPUT_PATH, "utf8");
-  if (back !== WORD) {
-    throw new Error("read-back verification failed: output differs from the word");
-  }
-  // Byte-level check: the file must hold exactly the word, no trailing
-  // newline or extra bytes, or the gate could read a different string.
-  const bytes = Buffer.byteLength(back, "utf8");
-  if (bytes !== WORD.length) {
-    throw new Error(`read-back byte length ${bytes} != word length ${WORD.length}`);
-  }
-  console.log(`wrote ${WORD.length}-character word to ${OUTPUT_PATH}`);
+function reportOutcome(target: string, word: string): void {
+  const bytes = Buffer.byteLength(word, "utf8");
+  console.log(`wrote ${word.length} characters (${bytes} bytes) to ${target}`);
 }
 
-main();
+function emitEntry(): string {
+  const word = verdictWord();
+  const problems = collectViolations(word);
+  if (problems.length > 0) {
+    throw new Error(`verdict word rejected: ${problems.join("; ")}`);
+  }
+  guardDestination(DESTINATION);
+  prepareOutputFolder(DESTINATION);
+  // Written byte-for-byte, no trailing newline: the file holds only the word.
+  writeFileSync(DESTINATION, word, "utf8");
+  reportOutcome(DESTINATION, word);
+  return word;
+}
+
+emitEntry();
